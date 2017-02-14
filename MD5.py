@@ -3,22 +3,6 @@
 # 引入math模块，因为要用到sin函数
 import math
 
-# 定义常量，用于初始化128位变量，注意字节顺序，文中的A=0x01234567，这里低值存放低字节，即01 23 45 67，所以运算时A=0x67452301，其他类似。
-# 这里用字符串的形势，是为了和hex函数的输出统一，hex(10)输出为'0xA',注意结果为字符串。
-A = '0x67452301'
-B = '0xefcdab89'
-C = '0x98badcfe'
-D = '0x10325476'
-#A = '0xd39bca5e'
-#B = '0x06c007eb'
-#C = '0x48ae43cd'
-#D = '0xd37fdedf'
-
-#'014842d4' #
-#'80b57149' #
-#'5a4a0363' #
-#'793f7367' #
-
 # 定义每轮中用到的函数。L为循环左移，注意左移之后可能会超过32位，所以要和0xffffffff做与运算，确保结果为32位。
 F = lambda x, y, z: ((x & y) | ((~x) & z))
 G = lambda x, y, z: ((x & z) | (y & (~z)))
@@ -57,12 +41,10 @@ def fun(fun_list, f, m, shi):
     global Ti_count
     # 引入全局变量，T(i)是从1到64循环的。
     while count < 16:
-        xx = int(fun_list[0], 16) + f(int(fun_list[1], 16), int(fun_list[2], 16), int(fun_list[3], 16)) + int(m[count],
-                                                                                                              16) + T(
-            Ti_count)
-        xx = xx & 0xffffffff
+        xx = int(fun_list[0], 16) + f(int(fun_list[1], 16), int(fun_list[2], 16), int(fun_list[3], 16)) + int(m[count], 16) + T(Ti_count)
+        xx &= 0xffffffff
         ll = L(xx, shi[count])
-        fun_list[0] = hex((int(fun_list[1], 16) + ll) & (0xffffffff))[:-1]
+        fun_list[0] = hex((int(fun_list[1], 16) + ll) & 0xffffffff)[:-1]
         # 最后的[:-1]是为了去除类似'0x12345678L'最后的'L'
         fun_list = shift(fun_list)
         count += 1
@@ -75,9 +57,9 @@ def fun(fun_list, f, m, shi):
 def genM16(order, ascii_list, f_offset):
     ii = 0
     m16 = [0] * 16
-    f_offset = f_offset * 64
+    f_offset *= 64
     for i in order:
-        i = i * 4
+        i *= 4
         m16[ii] = '0x' + ''.join((ascii_list[i + f_offset] + ascii_list[i + 1 + f_offset] + ascii_list[
             i + 2 + f_offset] + ascii_list[i + 3 + f_offset]).split('0x'))
         ii += 1
@@ -105,17 +87,13 @@ def show_result(f_list):
     f_list1 = [0] * 4
     for i in f_list:
         f_list1[f_list.index(i)] = reverse_hex(i)[2:]
-        result = result + f_list1[f_list.index(i)]
+        result += f_list1[f_list.index(i)]
     return result
 
-def md5(input_m):
-    abcd_list = [A, B, C, D]
-    global Ti_count
-    Ti_count = 1
-
+def padding(input_m, msg_lenth = 0):
     # 对每一个输入先添加一个'0x80'，即'10000000'
     ascii_list = map(hex, map(ord, input_m))
-    msg_lenth = len(ascii_list) * 8
+    msg_lenth += len(ascii_list) * 8
     ascii_list.append('0x80')
     for i in range(len(ascii_list)):
         if len(ascii_list[i]) < 4:
@@ -124,8 +102,7 @@ def md5(input_m):
     while (len(ascii_list) * 8 + 64) % 512 != 0:
         ascii_list.append('0x00')
 
-    # 最后64为存放消息长度，注意长度存放顺序低位在前。
-    # 例如，消息为'a'，则长度为'0x0800000000000000'
+    # 最后64为存放消息长度，注意长度存放顺序低位在前。例如，消息为'a'，则长度为'0x0800000000000000'
     msg_lenth_0x = hex(msg_lenth)[2:]
     msg_lenth_0x = '0x' + msg_lenth_0x.rjust(16, '0')
     msg_lenth_0x_big_order = reverse_hex(msg_lenth_0x)[2:]
@@ -133,8 +110,15 @@ def md5(input_m):
     for i in range(0, len(msg_lenth_0x_big_order), 2):
         msg_lenth_0x_list.append('0x' + msg_lenth_0x_big_order[i:i + 2])
     ascii_list.extend(msg_lenth_0x_list)
-    #print  ascii_list
-    #print  ''.join(ascii_list).replace('0x','')
+    return ascii_list
+
+
+def md5(input_m):
+    global Ti_count
+    Ti_count = 1
+    abcd_list = ['0x67452301', '0xefcdab89', '0x98badcfe', '0x10325476']
+    ascii_list = padding(input_m)
+
     # 对每个分组进行4轮运算
     for i in range(0, len(ascii_list) / 64):
         # 将最初128位种子存放在变量中，
@@ -148,13 +132,9 @@ def md5(input_m):
 
         # 主要四轮运算，注意打印结果列表已经被进行过右移操作！
         abcd_list = fun(abcd_list, F, order_1, shi_1)
-        # print '--------------------------------------'
         abcd_list = fun(abcd_list, G, order_2, shi_2)
-        # print '--------------------------------------'
         abcd_list = fun(abcd_list, H, order_3, shi_3)
-        # print '--------------------------------------'
         abcd_list = fun(abcd_list, I, order_4, shi_4)
-        # print '--------------------------------------'
 
         # 将最后输出与最初128位种子相加，注意，最初种子不能直接使用abcd_list[0]等，因为abcd_list已经被改变
         output_a = hex((int(abcd_list[0], 16) + int(aa, 16)) & 0xffffffff)[:-1]
@@ -167,8 +147,37 @@ def md5(input_m):
 
         # 将全局变量Ti_count恢复，一遍开始下一个分组的操作。
         Ti_count = 1
+        # print show_result(abcd_list)
 
-        # 最后调用函数，格式化输出
-        # print abcd_list
-        # print 'md5>>>' + show_result(abcd_list)
     return show_result(abcd_list)
+
+
+# md5-Length Extension Attack: 计算 md5(message + padding + suffix), res = md5(message), len_m = len(message)
+def md5_lea(suffix, res, len_m):
+
+    global Ti_count
+    Ti_count = 1
+    abcd_list = []
+    for i in range(0, 32, 8):
+        abcd_list.append(reverse_hex('0x' + res[i: i + 8]))
+    ascii_list = padding(suffix, (len_m + 72) / 64 * 64 * 8)  # len(message + padding) * 8
+
+    for i in range(0, len(ascii_list) / 64):
+        aa, bb, cc, dd = abcd_list
+        order_1 = genM16(m_1, ascii_list, i)
+        order_2 = genM16(m_2, ascii_list, i)
+        order_3 = genM16(m_3, ascii_list, i)
+        order_4 = genM16(m_4, ascii_list, i)
+        abcd_list = fun(abcd_list, F, order_1, shi_1)
+        abcd_list = fun(abcd_list, G, order_2, shi_2)
+        abcd_list = fun(abcd_list, H, order_3, shi_3)
+        abcd_list = fun(abcd_list, I, order_4, shi_4)
+        output_a = hex((int(abcd_list[0], 16) + int(aa, 16)) & 0xffffffff)[:-1]
+        output_b = hex((int(abcd_list[1], 16) + int(bb, 16)) & 0xffffffff)[:-1]
+        output_c = hex((int(abcd_list[2], 16) + int(cc, 16)) & 0xffffffff)[:-1]
+        output_d = hex((int(abcd_list[3], 16) + int(dd, 16)) & 0xffffffff)[:-1]
+        abcd_list = [output_a, output_b, output_c, output_d]
+        Ti_count = 1
+
+    return show_result(abcd_list)
+
